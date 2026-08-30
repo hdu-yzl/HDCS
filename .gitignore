@@ -1,0 +1,30 @@
+# Python caches and local tooling
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.idea/
+.vscode/
+
+# Environments and secrets
+.env
+.env.*
+.venv/
+venv/
+
+# Datasets and generated artifacts
+data/
+checkpt/
+save/
+logs/
+output/
+*.tfrecord
+*.pt
+*.pth
+*.ckpt
+
+# OS files
+.DS_Store
+Thumbs.db
