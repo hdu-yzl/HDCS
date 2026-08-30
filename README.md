@@ -29,10 +29,10 @@ The implementation supports DNN, DeepFM, and DCN backbones on the three-scenario
 
 ## Environment
 
-The code was tested on Windows with Python 3.12. Install the dependencies with the project interpreter:
+The code is designed for Linux with Python 3.10 or later. Install the dependencies with:
 
-```powershell
-& 'D:\anaconda\envs\py312\python.exe' -m pip install -r requirements.txt
+```bash
+python3 -m pip install -r requirements.txt
 ```
 
 CUDA is optional. Pass `--cuda -1` to run on CPU.
@@ -76,9 +76,9 @@ AliCCP preprocessing follows the public dataset release and is not included beca
 
 Place `raw_sample.csv`, `ad_feature.csv`, and `user_profile.csv` under `data/`, then run:
 
-```powershell
-& 'D:\anaconda\envs\py312\python.exe' datatransform\Alimama_preprocess.py
-& 'D:\anaconda\envs\py312\python.exe' datatransform\Alimama2tf.py
+```bash
+python3 datatransform/Alimama_preprocess.py
+python3 datatransform/Alimama2tf.py
 ```
 
 The first command uses interactions before `2017-05-13` for training and the final day for testing. The second command samples 10% of the training portion for validation, applies a frequency threshold of 2, and writes the four-scenario TFRecords expected by `SM4_final_trainer.py`.
@@ -87,20 +87,20 @@ The first command uses interactions before `2017-05-13` for training and the fin
 
 ### AliCCP (three scenarios)
 
-```powershell
-& 'D:\anaconda\envs\py312\python.exe' SM3_final_trainer.py --model dnn --dataset ali-ccp
+```bash
+python3 SM3_final_trainer.py --model dnn --dataset ali-ccp
 ```
 
 ### AliMama (four scenarios)
 
-```powershell
-& 'D:\anaconda\envs\py312\python.exe' SM4_final_trainer.py --model dnn --dataset ali-mama
+```bash
+python3 SM4_final_trainer.py --model dnn --dataset ali-mama
 ```
 
 Set `--model` to `dnn`, `deepfm`, or `dcn`. By default, each command runs five seeds (`2022`-`2026`) and reports per-scenario AUC and Logloss as mean +/- standard deviation. For a quick single-run check:
 
-```powershell
-& 'D:\anaconda\envs\py312\python.exe' SM4_final_trainer.py --model deepfm --dataset ali-mama --seeds 2022
+```bash
+python3 SM4_final_trainer.py --model deepfm --dataset ali-mama --seeds 2022
 ```
 
 Useful options:
