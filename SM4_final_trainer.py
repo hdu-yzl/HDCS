@@ -1,4 +1,4 @@
-"""Training entry point for the four-scenario AliMama experiments."""
+"""Training entry point for the four-scenario AliMama dataset."""
 
 import argparse
 import os
@@ -35,7 +35,8 @@ def build_parser():
     parser.add_argument("--mlp_dims", type=int, nargs="+", default=[1024, 512, 256])
     parser.add_argument("--hdcs_dims", type=int, nargs="+", default=[512, 256, 128])
     parser.add_argument("--mlp_dropout", type=float, default=0.0)
-    parser.add_argument("--mlp_bn", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--mlp_bn", dest="mlp_bn", action="store_true", default=True)
+    parser.add_argument("--no-mlp_bn", dest="mlp_bn", action="store_false")
     parser.add_argument("--cross", type=int, default=3)
 
     parser.add_argument("--cuda", type=int, choices=range(-1, 8), default=0)
@@ -44,6 +45,14 @@ def build_parser():
     parser.add_argument("--lambda1", type=float, default=0.2)
     parser.add_argument("--lambda2", type=float, default=1.1)
     parser.add_argument("--seeds", type=int, nargs="+", default=[2022, 2023, 2024, 2025, 2026])
+    parser.add_argument("--config", type=Path,
+                        help="DNN JSON configuration; defaults to the dataset configuration")
+    parser.add_argument("--cache", type=Path,
+                        help="TFRecord cache directory; defaults to cache/<dataset>")
+    parser.add_argument("--output-dir", type=Path,
+                        help="Per-seed DNN outputs; use a fresh directory")
+    parser.add_argument("--validation-only", action="store_true",
+                        help="Skip test evaluation for the configured DNN path")
     return parser
 
 
@@ -223,6 +232,10 @@ def checkpoint_for_seed(base_path, seed):
 def run(args):
     if args.dataset.lower() != "ali-mama":
         raise ValueError("SM4_final_trainer.py supports the four-scenario AliMama dataset only")
+
+    if args.model == "dnn" or args.config is not None:
+        from train_script.hdcs_train import run_configured
+        return run_configured(args)
 
     field_dimensions = get_feature_dimensions("./data/ali-mama/stats_2")
     data_dir = "./data/ali-mama/threshold_2"

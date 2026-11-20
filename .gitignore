@@ -28,3 +28,8 @@ output/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Materialized training cache and evaluation outputs
+cache/
+results/
+*.bin

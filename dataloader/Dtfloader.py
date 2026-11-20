@@ -5,9 +5,14 @@ feature vector, a binary label, and a numeric scenario/domain identifier.
 """
 
 from pathlib import Path
+import os
 
 import tensorflow as tf
 import torch
+
+tf.config.experimental.set_visible_devices([], "GPU")
+tf.config.threading.set_intra_op_parallelism_threads(int(os.environ.get("TF_NUM_INTRAOP_THREADS", "4")))
+tf.config.threading.set_inter_op_parallelism_threads(int(os.environ.get("TF_NUM_INTEROP_THREADS", "2")))
 
 
 class _TFRecordLoader:
@@ -35,14 +40,22 @@ class _TFRecordLoader:
     def get_data(self, split, batch_size=1, shuffle=False, seed=2022):
         """Yield one split without materializing the full dataset in memory."""
         dataset = tf.data.TFRecordDataset(self._files(split))
-        dataset = dataset.map(self._parse, num_parallel_calls=tf.data.AUTOTUNE)
         if shuffle:
             dataset = dataset.shuffle(
                 buffer_size=100_000,
                 seed=seed,
                 reshuffle_each_iteration=True,
             )
-        dataset = dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+        # Parsing whole batches avoids one Python/TF scheduling operation per row.
+        # Shuffle still operates on individual records before batching.
+        dataset = dataset.batch(batch_size)
+        def parse_batch(serialized):
+            example = tf.io.parse_example(serialized, self.description)
+            return example["feature"], example["label"], example["domain"]
+        dataset = dataset.map(parse_batch, num_parallel_calls=2)
+        options = tf.data.Options()
+        options.experimental_threading.private_threadpool_size = 4
+        dataset = dataset.with_options(options).prefetch(2)
 
         for features, labels, domains in dataset:
             yield (

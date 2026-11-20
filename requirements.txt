@@ -4,3 +4,4 @@ scikit-learn>=1.4,<2.0
 tensorflow>=2.16,<2.21
 torch>=2.2,<3.0
 tqdm>=4.66,<5.0
+scipy>=1.10,<2.0

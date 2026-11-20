@@ -1,50 +1,41 @@
 # HDCS
 
-Official PyTorch implementation of **Hierarchical Differentiated Cross-scenario Sharing (HDCS)** for data-sparse multi-scenario recommendation.
+PyTorch implementation of **Hierarchical Differentiated Cross-scenario Sharing (HDCS)** for multi-scenario recommendation, with training entry points for AliCCP (three scenarios) and AliMama (four scenarios).
 
-HDCS models cross-scenario transfer at two complementary levels:
+HDCS combines shared and scenario-specific representations, an instance-target hard selector with straight-through gradients, and a soft allocator for cross-scenario transfer. Inference uses the native scenario prediction path.
 
-1. A scenario-level hard selector learns **where to transfer** each source instance.
-2. A shared-specific soft allocator learns **how to transfer** by balancing shared and target-specific representations.
-
-The implementation supports DNN, DeepFM, and DCN backbones on the three-scenario AliCCP and four-scenario AliMama settings.
-
-## Repository structure
+## Code structure
 
 ```text
-.
-|-- modules/
-|   |-- layers.py          # Shared embedding, MLP, FM, and cross layers
-|   |-- SM3_model.py       # General HDCS implementation and three-scenario models
-|   `-- SM4_model.py       # Four-scenario model wrappers
-|-- dataloader/
-|   `-- Dtfloader.py       # Streaming TFRecord-to-PyTorch readers
-|-- datatransform/
-|   |-- Alimama_preprocess.py  # Merge and chronologically split AliMama tables
-|   `-- Alimama2tf.py          # Encode AliMama CSV files as TFRecords
-|-- SM3_final_trainer.py   # AliCCP training and evaluation
-|-- SM4_final_trainer.py   # AliMama training and evaluation
-`-- requirements.txt
+SM3_final_trainer.py          # AliCCP training entry point
+SM4_final_trainer.py          # AliMama training entry point
+modules/SM3_model.py          # Core HDCS and DNN/DeepFM/DCN backbones
+modules/SM4_model.py          # Four-scenario model wrappers
+modules/HDCS_model.py         # Configurable representations, routing and loss
+modules/layers.py            # Embedding, MLP, FM and cross layers
+dataloader/Dtfloader.py       # Batched TFRecord readers
+train_script/hdcs_train.py    # Cached DNN training and checkpoint evaluation
+train_script/hdcs_calibration.py # Optional validation-based calibration
+configs/                     # Dataset DNN runtime configurations
+tests/                       # Synthetic model and training behavior checks
+datatransform/               # AliMama data preparation
 ```
+
+The configurable model includes residual branches, scenario input adapters, optional additive feature logits, and prediction-head sharing. The DNN trainer supports separate optimizer parameter groups, moving-average weights, mixed precision, optional CUDA Graph execution, validation-based checkpoint saving, and per-scenario evaluation.
 
 ## Environment
 
-The code is designed for Linux with Python 3.10 or later. Install the dependencies with:
+Use Linux with Python 3.10 or later:
 
 ```bash
 python3 -m pip install -r requirements.txt
 ```
 
-CUDA is optional. Pass `--cuda -1` to run on CPU.
+CUDA is optional; pass `--cuda -1` for CPU execution. CUDA Graph execution requires CUDA and a model without BatchNorm or dropout.
 
 ## Datasets
 
-The datasets are not redistributed in this repository.
-
-- [AliCCP](https://tianchi.aliyun.com/dataset/408)
-- [AliMama](https://tianchi.aliyun.com/dataset/56)
-
-### Expected data layout
+Dataset files are not redistributed. Prepare [AliCCP](https://tianchi.aliyun.com/dataset/408) and [AliMama](https://tianchi.aliyun.com/dataset/56) in this layout:
 
 ```text
 data/
@@ -55,82 +46,58 @@ data/
 |       |-- val_*.tfrecord
 |       `-- test_*.tfrecord
 `-- ali-mama/
-    |-- train_data.csv
-    |-- test_data.csv
     |-- stats_2/defaults.pkl
     `-- threshold_2/
         |-- train_*.tfrecord
-        |-- val_*.tfrecord
+        |-- validation_*.tfrecord
         `-- test_*.tfrecord
 ```
 
-Each TFRecord example must contain:
+Each example contains `feature` (18 integer feature IDs for AliCCP or 16 for AliMama), `label` (one binary float), and `domain` (one zero-based scenario ID stored as a float). `defaults.pkl` stores the field vocabulary metadata used by the model. Both `val_` and `validation_` prefixes are accepted for validation records.
 
-- `feature`: fixed-length integer feature IDs (18 fields for AliCCP, 16 for AliMama);
-- `label`: one binary click label;
-- `domain`: one zero-based scenario ID.
-
-AliCCP preprocessing follows the public dataset release and is not included because distributions of the downloaded package differ. Prepare the three splits using the schema above.
-
-### AliMama preprocessing
-
-Place `raw_sample.csv`, `ad_feature.csv`, and `user_profile.csv` under `data/`, then run:
+For AliMama, place `raw_sample.csv`, `ad_feature.csv`, and `user_profile.csv` under `data/`, then run:
 
 ```bash
 python3 datatransform/Alimama_preprocess.py
 python3 datatransform/Alimama2tf.py
 ```
 
-The first command uses interactions before `2017-05-13` for training and the final day for testing. The second command samples 10% of the training portion for validation, applies a frequency threshold of 2, and writes the four-scenario TFRecords expected by `SM4_final_trainer.py`.
+AliCCP preprocessing depends on the public release layout; prepare its splits using the schema above.
 
 ## Training
 
-### AliCCP (three scenarios)
+The existing entry points use the dataset JSON configuration for DNN training and create missing caches automatically:
 
 ```bash
-python3 SM3_final_trainer.py --model dnn --dataset ali-ccp
+python3 SM3_final_trainer.py --model dnn --dataset ali-ccp --cuda 0
+python3 SM4_final_trainer.py --model dnn --dataset ali-mama --cuda 0
 ```
 
-### AliMama (four scenarios)
+DNN configurations are `configs/hdcs_dnn_aliccp.json` and `configs/hdcs_dnn_alimama.json`. Model and training settings come from these files. Use `--config` to supply another JSON file; `--seeds`, `--cuda`, `--cache`, `--output-dir`, and `--validation-only` control execution. For a single seed:
 
 ```bash
-python3 SM4_final_trainer.py --model dnn --dataset ali-mama
+python3 SM4_final_trainer.py --model dnn --seeds 2022 --output-dir output/alimama_run
 ```
 
-Set `--model` to `dnn`, `deepfm`, or `dcn`. By default, each command runs five seeds (`2022`-`2026`) and reports per-scenario AUC and Logloss as mean +/- standard deviation. For a quick single-run check:
+Each seed writes checkpoints and evaluation artifacts under its own output directory. Use a fresh output directory for each invocation. Cache files preserve feature IDs, row order, labels and scenario IDs, and record source-file metadata for consistency checks.
+
+DeepFM and DCN use the streaming trainer and its command-line model/training options:
 
 ```bash
-python3 SM4_final_trainer.py --model deepfm --dataset ali-mama --seeds 2022
+python3 SM3_final_trainer.py --model deepfm --seeds 2022
+python3 SM4_final_trainer.py --model dcn --seeds 2022
 ```
 
-Useful options:
+Use `--help` on either entry point for the available arguments.
 
-| Option | Default | Description |
-| --- | ---: | --- |
-| `--bsize` | `4096` | Training batch size |
-| `--dim` | `16` | Feature embedding dimension |
-| `--mlp_dims` | `1024 512 256` | Backbone MLP widths |
-| `--hdcs_dims` | `512 256 128` | Selector/allocator FNN widths |
-| `--threshold` | `0.5` | Hard transfer selection threshold |
-| `--lambda_tr` | `0.3` | Cross-scenario transfer-loss weight |
-| `--lambda1` | `0.2` | KL regularization weight |
-| `--lambda2` | `1.1` | Routing sparsity weight |
-| `--cuda` | `0` | CUDA device; use `-1` for CPU |
+## Verification
 
-Checkpoints are written under `checkpt/` by default, with one file per seed. Dataset files, checkpoints, logs, and Python caches are excluded from version control.
+```bash
+python3 -m unittest discover -s tests -v
+```
 
-## Implementation notes
-
-- Native prediction is independent of the selector and allocator.
-- Hard routing applies only to off-diagonal source-target pairs and uses a straight-through estimator.
-- The training objective is `L_nat + lambda_tr L_tr + lambda_1 L_KL + lambda_2 L_spa`.
-- KL regularization is computed from the soft transfer probabilities before discretization.
-- Evaluation uses the native-only path, so the routing modules are not executed at inference time.
-
-## Citation
-
-Citation information will be added after publication. If you use this repository before then, please cite the repository URL.
+The checks use synthetic inputs to exercise model paths, gradients, optimizer behavior, calibration boundaries and CUDA Graph execution when CUDA is available.
 
 ## License
 
-This project is released under the [MIT License](LICENSE).
+Released under the [MIT License](LICENSE).
