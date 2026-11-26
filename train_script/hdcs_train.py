@@ -163,8 +163,8 @@ def model_options(config):
                 field_num=len(defaults), domain_num=spec['domains'], model='dnn', cross=3, fusion='mean',
                 mlp_dims=config.get('mlp_dims', [1024,512,256]), hdcs_dims=config.get('hdcs_dims', [512,256,128]),
                 mlp_dropout=config.get('dropout', 0.), use_bn=config.get('bn', False),
-                threshold=config.get('threshold', .5), detach_selector=config.get('detach_selector', True),
-                residual=config.get('residual', False), initial_probability=config.get('initial_probability', .6),
+                threshold=config.get('threshold', .5), detach_selector=config.get('detach_selector', False),
+                residual=config.get('residual', False), initial_probability=config.get('initial_probability'),
                 input_adapter_dim=config.get('input_adapter_dim',0),linear_init=config.get('linear_init','xavier'),
                 input_adapter_scale=config.get('input_adapter_scale',1.),
                 input_adapter_dims=config.get('input_adapter_dims'),
@@ -282,7 +282,7 @@ def run(args):
     base_learning_rates = [[float(g['lr']) for g in optimizer.param_groups] for optimizer in optimizers]
     write_json(output/'config.json', dict(config=config, model_options=options, cache=str(args.cache),
                torch=torch.__version__, python=sys.version, device=str(device), pid=os.getpid(),
-               checkpoint_metric='validation macro_auc'))
+               checkpoint_metric='validation pooled auc'))
     started = time.time()
     for epoch in range(epochs):
         model.train()
@@ -349,7 +349,7 @@ def run(args):
         ema_validation = None
         if ema_model is not None:
             ema_validation = evaluate(ema_model, validation, device)
-            if config.get('ema_only',False) or ema_validation['macro_auc']>validation_metrics['macro_auc']:
+            if config.get('ema_only',False) or ema_validation['auc']>validation_metrics['auc']:
                 validation_metrics=ema_validation
                 selected_model=ema_model
                 selected_weights='ema'
@@ -361,7 +361,7 @@ def run(args):
         if ema_validation is not None:
             item.update(live_validation=live_validation,ema_validation=ema_validation,selected_weights=selected_weights)
         history.append(item)
-        score = validation_metrics['macro_auc']
+        score = validation_metrics['auc']
         if score > best:
             best, stale = score, 0
             saved = dict(state_dict=selected_model.state_dict(), config=config, model_options=options,
@@ -373,7 +373,7 @@ def run(args):
         print('VALIDATION', json.dumps(item),flush=True)
         if stale >= config.get('patience', 2):
             break
-    best_item = max(history, key=lambda x:x['validation']['macro_auc'])
+    best_item = max(history, key=lambda x:x['validation']['auc'])
     calibration = None
     if config.get('calibration_method'):
         assert config['calibration_method'] == 'positive_affine_per_domain'
