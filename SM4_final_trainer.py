@@ -45,14 +45,6 @@ def build_parser():
     parser.add_argument("--lambda1", type=float, default=0.2)
     parser.add_argument("--lambda2", type=float, default=1.1)
     parser.add_argument("--seeds", type=int, nargs="+", default=[2022, 2023, 2024, 2025, 2026])
-    parser.add_argument("--config", type=Path,
-                        help="DNN JSON configuration; defaults to the dataset configuration")
-    parser.add_argument("--cache", type=Path,
-                        help="TFRecord cache directory; defaults to cache/<dataset>")
-    parser.add_argument("--output-dir", type=Path,
-                        help="Per-seed DNN outputs; use a fresh directory")
-    parser.add_argument("--validation-only", action="store_true",
-                        help="Skip test evaluation for the configured DNN path")
     return parser
 
 
@@ -232,10 +224,6 @@ def checkpoint_for_seed(base_path, seed):
 def run(args):
     if args.dataset.lower() != "ali-mama":
         raise ValueError("SM4_final_trainer.py supports the four-scenario AliMama dataset only")
-
-    if args.model == "dnn" or args.config is not None:
-        from modules.hdcs_training import run_configured
-        return run_configured(args)
 
     field_dimensions = get_feature_dimensions("./data/ali-mama/stats_2")
     data_dir = "./data/ali-mama/threshold_2"

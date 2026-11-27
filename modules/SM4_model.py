@@ -1,7 +1,6 @@
 import torch
 
 from modules.SM3_model import HDCSModel
-from modules.HDCS_model import ConfigurableHDCS
 
 
 def _four_scenario_options(opt):
@@ -15,12 +14,6 @@ class MaskDNN(HDCSModel):
     """Four-scenario HDCS with a DNN backbone."""
     def __init__(self, opt):
         super().__init__(_four_scenario_options(opt), backbone="dnn")
-
-
-class ConfiguredMaskDNN(ConfigurableHDCS):
-    """Opt-in AliMama adaptation with the same HDCS selection/allocation paths."""
-    def __init__(self, opt):
-        super().__init__(dict(_four_scenario_options(opt), model='dnn'))
 
 
 class MaskDeepFM(HDCSModel):
@@ -51,7 +44,5 @@ def getModel(model: str, opt):
     if model_name == "dcn":
         return MaskDeepCross(opt)
     if model_name == "dnn":
-        if opt.get('configured', False):
-            return ConfiguredMaskDNN(opt)
         return MaskDNN(opt)
     raise ValueError(f"Invalid model type: {model}")
