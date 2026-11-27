@@ -1,4 +1,4 @@
-"""Training entry point for the three-scenario AliCCP dataset."""
+"""Train HDCS on AliCCP or AliMama."""
 
 import argparse
 import logging
@@ -14,20 +14,28 @@ import torch
 import torch.nn.functional as F
 from sklearn import metrics
 
-from modules import SM3_model
+from modules import hdcs
+
+
+DATASETS = {
+    "ali-ccp": dict(domains=3, stats="data/ali-ccp/stats",
+                    records="data/ali-ccp/tfrecord", lr=1e-3, l2=1e-7),
+    "ali-mama": dict(domains=4, stats="data/ali-mama/stats_2",
+                     records="data/ali-mama/threshold_2", lr=3e-4, l2=3e-6),
+}
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(description="Train three-scenario HDCS")
-    parser.add_argument("--dataset", type=str, default="ali-ccp")
+    parser = argparse.ArgumentParser(description="Train HDCS on AliCCP or AliMama")
+    parser.add_argument("--dataset", type=str.lower, choices=tuple(DATASETS), default="ali-ccp")
     parser.add_argument("--model", type=str, choices=("dnn", "deepfm", "dcn"), default="dnn")
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--l2", type=float, default=1e-7)
+    parser.add_argument("--lr", type=float, default=None, help="Default: AliCCP 1e-3; AliMama 3e-4")
+    parser.add_argument("--l2", type=float, default=None, help="Default: AliCCP 1e-7; AliMama 3e-6")
     parser.add_argument("--bsize", type=int, default=4096)
     parser.add_argument("--optim", type=str, choices=("Adam", "SGD", "adam", "sgd"), default="Adam")
     parser.add_argument("--train_epoch", type=int, default=20)
     parser.add_argument("--patience", type=int, default=2)
-    parser.add_argument("--save_dir", type=Path, default=Path("checkpt/hdcs_sm3.pt"))
+    parser.add_argument("--save_dir", type=Path, default=None, help="Default: checkpt/hdcs_<dataset>_<model>.pt")
 
     parser.add_argument("--dim", type=int, default=16)
     parser.add_argument("--mlp_dims", type=int, nargs="+", default=[1024, 512, 256])
@@ -87,11 +95,12 @@ def get_data_loader(dataset, data_dir):
 
     if dataset.lower() == "ali-ccp":
         return Dtfloader.Ali_CCPLoader(data_dir)
-    raise ValueError(f"Unsupported three-scenario dataset: {dataset}")
+    if dataset.lower() == "ali-mama":
+        return Dtfloader.Ali_MamaLoader(data_dir)
+    raise ValueError(f"Unsupported dataset: {dataset}")
 
 
 def compute_hdcs_loss(outputs, label, domain, lambda_tr, lambda1, lambda2):
-    """Paper Eqs. (20)-(24), averaged over samples/valid transfer pairs."""
     label = label.reshape(-1, 1).float()
     domain_indices = domain.reshape(-1).round().long()
 
@@ -148,14 +157,14 @@ class Trainer:
         self.model_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.dataloader = get_data_loader(opt["dataset"], opt["data_dir"])
-        self.network = SM3_model.getModel(opt["model"], opt["model_opt"]).to(self.device)
-        self.optimizer = SM3_model.getOptim(
+        self.network = hdcs.getModel(opt["model"], opt["model_opt"]).to(self.device)
+        self.optimizer = hdcs.getOptim(
             self.network,
             opt["optimizer"],
             opt["lr"],
             opt["l2"],
         )
-        self.logger = get_logger(f"hdcs-{opt['model']}-seed-{self.seed}")
+        self.logger = get_logger(f"hdcs-{opt['dataset']}-{opt['model']}-seed-{self.seed}")
 
     def train_on_batch(self, label, data, domain):
         self.network.train()
@@ -291,20 +300,32 @@ def checkpoint_for_seed(base_path, seed):
     base_path = Path(base_path)
     if base_path.suffix:
         return base_path.with_name(f"{base_path.stem}_seed{seed}{base_path.suffix}")
-    return base_path / f"hdcs_sm3_seed{seed}.pt"
+    return base_path / f"hdcs_seed{seed}.pt"
+
+
+def resolve_args(args):
+    args = argparse.Namespace(**vars(args))
+    spec = DATASETS[args.dataset]
+    if args.lr is None:
+        args.lr = spec["lr"]
+    if args.l2 is None:
+        args.l2 = spec["l2"]
+    if args.save_dir is None:
+        args.save_dir = Path("checkpt") / f"hdcs_{args.dataset}_{args.model}.pt"
+    return args
 
 
 def run(args):
-    if args.dataset.lower() != "ali-ccp":
-        raise ValueError("SM3_final_trainer.py supports the three-scenario AliCCP dataset only")
-
-    field_dimensions = get_feature_dimensions("./data/ali-ccp/stats")
-    data_dir = "./data/ali-ccp/tfrecord"
+    args = resolve_args(args)
+    spec = DATASETS[args.dataset]
+    domain_num = spec["domains"]
+    field_dimensions = get_feature_dimensions(spec["stats"])
+    data_dir = spec["records"]
     model_opt = {
         "latent_dim": args.dim,
         "feat_num": sum(field_dimensions),
         "field_num": len(field_dimensions),
-        "domain_num": 3,
+        "domain_num": domain_num,
         "mlp_dropout": args.mlp_dropout,
         "use_bn": args.mlp_bn,
         "mlp_dims": args.mlp_dims,
@@ -313,8 +334,8 @@ def run(args):
         "threshold": args.threshold,
     }
 
-    all_auc = {domain: [] for domain in range(3)}
-    all_logloss = {domain: [] for domain in range(3)}
+    all_auc = {domain: [] for domain in range(domain_num)}
+    all_logloss = {domain: [] for domain in range(domain_num)}
     for seed in args.seeds:
         opt = {
             "model_opt": model_opt,
@@ -335,12 +356,12 @@ def run(args):
             "seed": seed,
         }
         test_auc, test_logloss = Trainer(opt).train()
-        for domain in range(3):
+        for domain in range(domain_num):
             all_auc[domain].append(test_auc[domain])
             all_logloss[domain].append(test_logloss[domain])
 
-    logger = get_logger("hdcs-summary")
-    for domain in range(3):
+    logger = get_logger(f"hdcs-{args.dataset}-{args.model}-summary")
+    for domain in range(domain_num):
         auc_mean = statistics.mean(all_auc[domain])
         auc_std = statistics.stdev(all_auc[domain]) if len(all_auc[domain]) > 1 else 0.0
         loss_mean = statistics.mean(all_logloss[domain])

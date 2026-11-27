@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 
 class FeatureEmbedding(torch.nn.Module):
-    """Shared sparse feature embedding table (paper Eq. 7)."""
+    """Shared sparse feature embedding table."""
 
     def __init__(self, feature_num, latent_dim):
         super().__init__()

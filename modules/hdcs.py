@@ -8,7 +8,6 @@ from modules.layers import CrossNetwork, FactorizationMachine, FeatureEmbedding,
 
 
 class StraightThroughGate(torch.autograd.Function):
-    """Binary forward pass with an identity straight-through gradient."""
 
     @staticmethod
     def forward(ctx, value):
@@ -20,7 +19,6 @@ class StraightThroughGate(torch.autograd.Function):
 
 
 class SoftAllocator(nn.Module):
-    """Paper Eq. (17): predict alpha for every instance-target pair."""
 
     def __init__(self, input_dim, hidden_dims, dropout, use_bn):
         super().__init__()
@@ -41,14 +39,13 @@ class SoftAllocator(nn.Module):
 
 
 class HDCSModel(nn.Module):
-    """HDCS implementation corresponding to paper Eqs. (7)-(19)."""
 
     def __init__(self, opt, backbone):
         super().__init__()
         self.latent_dim = opt["latent_dim"]
         self.feature_num = opt["feat_num"]
         self.field_num = opt["field_num"]
-        self.domain_num = opt.get("domain_num", 3)
+        self.domain_num = opt["domain_num"]
         self.backbone = backbone
         self.threshold = opt.get("threshold", 0.5)
         self.dropout = opt["mlp_dropout"]
@@ -79,7 +76,7 @@ class HDCSModel(nn.Module):
 
         self.representation_dim = self.hdcs_dims[-1]
 
-        # Paper Eqs. (8)-(11): a shared representation and K target branches.
+
         self.shared_projector = self._make_hdcs_fnn(backbone_output_dim)
         self.scenario_specific_branches = nn.ModuleList(
             self._make_hdcs_fnn(self.representation_dim) for _ in range(self.domain_num)
@@ -88,7 +85,7 @@ class HDCSModel(nn.Module):
             nn.Linear(self.representation_dim, 1) for _ in range(self.domain_num)
         )
 
-        # Paper Eqs. (12)-(16): mean fusion, shared FNN, and one FNN per target.
+
         self.selector_shared = self._make_hdcs_fnn(self.representation_dim)
         self.selector_target_branches = nn.ModuleList(
             self._make_hdcs_fnn(self.representation_dim) for _ in range(self.domain_num)
@@ -97,7 +94,7 @@ class HDCSModel(nn.Module):
             nn.Linear(self.representation_dim, 1) for _ in range(self.domain_num)
         )
 
-        # Paper Eqs. (17)-(19): target-aware soft allocation.
+
         self.allocator = SoftAllocator(
             self.representation_dim,
             self.hdcs_dims,
@@ -163,7 +160,6 @@ class HDCSModel(nn.Module):
         return shared_representation, specific_representations, native_logits
 
     def predict_native(self, features, domain):
-        """Inference path; selector and allocator are intentionally not executed."""
         _, _, native_logits = self._native_representations(features)
         domain_indices = self._domain_indices(domain)
         return native_logits.gather(1, domain_indices.unsqueeze(1))
@@ -172,11 +168,11 @@ class HDCSModel(nn.Module):
         domain_indices = self._domain_indices(domain)
         shared_representation, specific_representations, native_logits = self._native_representations(features)
 
-        # Mean fusion in paper Eq. (12).
+
         fused_representation = specific_representations.mean(dim=1)
         selector_common = self.selector_shared(fused_representation)
 
-        # Target-oriented transfer representations in paper Eqs. (14)-(15).
+
         selector_representations = torch.stack(
             [branch(selector_common) for branch in self.selector_target_branches],
             dim=1,
