@@ -7,7 +7,7 @@ import torch
 import numpy as np
 from modules.SM4_model import getModel, ConfiguredMaskDNN
 from modules.HDCS_model import loss, GraphStep
-from train_script.hdcs_train import augment_features, learning_rate_factor, average_parameters
+from modules.hdcs_training import augment_features, learning_rate_factor, average_parameters
 
 
 class FourSceneAdaptation(unittest.TestCase):
@@ -188,7 +188,7 @@ class FourSceneAdaptation(unittest.TestCase):
         import json
         import tempfile
         from unittest.mock import patch
-        from train_script.hdcs_train import run
+        from modules.hdcs_training import run
         options = dict(self.options, domain_num=4)
         torch.manual_seed(2022)
         initial = ConfiguredMaskDNN(options).embedding.embedding.detach().clone()
@@ -212,7 +212,7 @@ class FourSceneAdaptation(unittest.TestCase):
                 output = root/('trial'+str(index))
                 args = argparse.Namespace(config=path, output=output, cache=cache,
                                           evaluate_checkpoint=None, eval_split='val')
-                with patch('train_script.hdcs_train.model_options', return_value=options), \
+                with patch('modules.hdcs_training.model_options', return_value=options), \
                      contextlib.redirect_stdout(io.StringIO()):
                     run(args)
                 saved = torch.load(str(output/'best.pt'), map_location='cpu')

@@ -14,8 +14,6 @@ modules/SM4_model.py          # Four-scenario model wrappers
 modules/HDCS_model.py         # Configurable representations, routing and loss
 modules/layers.py            # Embedding, MLP, FM and cross layers
 dataloader/Dtfloader.py       # Batched TFRecord readers
-train_script/hdcs_train.py    # Cached DNN training and checkpoint evaluation
-train_script/hdcs_calibration.py # Optional validation-based calibration
 configs/                     # Dataset DNN runtime configurations
 tests/                       # Synthetic model and training behavior checks
 datatransform/               # AliMama data preparation
@@ -96,7 +94,7 @@ Use `--help` on either entry point for the available arguments.
 python3 -m unittest discover -s tests -v
 ```
 
-The checks use synthetic inputs to exercise model paths, gradients, optimizer behavior, calibration boundaries and CUDA Graph execution when CUDA is available.
+The checks use synthetic inputs to exercise model paths, gradients, optimizer behavior and CUDA Graph execution when CUDA is available.
 
 ## License
 

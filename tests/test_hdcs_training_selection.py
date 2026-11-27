@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import torch
 
-from train_script.hdcs_train import run
+from modules.hdcs_training import run
 
 
 class PooledAUCSelection(unittest.TestCase):
@@ -43,10 +43,10 @@ class PooledAUCSelection(unittest.TestCase):
             output = root / 'output'
             args = argparse.Namespace(config=config_path, output=output, cache=root,
                                       evaluate_checkpoint=None)
-            with patch('train_script.hdcs_train.model_options', return_value=options), \
-                 patch('train_script.hdcs_train.CachedData', return_value=SyntheticData()), \
-                 patch('train_script.hdcs_train.torch.cuda.is_available', return_value=False), \
-                 patch('train_script.hdcs_train.evaluate', side_effect=evaluations) as evaluate, \
+            with patch('modules.hdcs_training.model_options', return_value=options), \
+                 patch('modules.hdcs_training.CachedData', return_value=SyntheticData()), \
+                 patch('modules.hdcs_training.torch.cuda.is_available', return_value=False), \
+                 patch('modules.hdcs_training.evaluate', side_effect=evaluations) as evaluate, \
                  contextlib.redirect_stdout(io.StringIO()):
                 run(args)
 

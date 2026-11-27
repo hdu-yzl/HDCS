@@ -127,7 +127,7 @@ def average_parameters(target, source, beta, copy_only=()):
         destination.copy_(current)
 
 
-def evaluate(model, data, device, batch_size=32768, calibration=None):
+def evaluate(model, data, device, batch_size=32768):
     model.eval()
     predictions = np.empty(data.rows, dtype='float32')
     cursor = 0
@@ -135,9 +135,6 @@ def evaluate(model, data, device, batch_size=32768, calibration=None):
         for feature, label, domain in data.batches(batch_size):
             feature, domain = feature.to(device), domain.to(device)
             native = model.predict_native(feature, domain)
-            if calibration is not None:
-                from train_script.hdcs_calibration import apply_calibration
-                native = apply_calibration(native, domain, calibration)
             prediction = native.float().sigmoid().cpu().numpy().reshape(-1)
             predictions[cursor:cursor+len(prediction)] = prediction
             cursor += len(prediction)
@@ -236,11 +233,8 @@ def run(args):
             model.load_state_dict(state)
         data = CachedData(args.cache, args.eval_split)
         assert data.dataset == config.get('dataset','ali-ccp'), 'Cache dataset mismatch'
-        evaluation = evaluate(model, data, device, calibration=state.get('calibration'))
-        raw_evaluation = (evaluate(model, data, device)
-                          if state.get('calibration') else None)
-        write_json(output/'result.json', dict(config=config, split=args.eval_split, metrics=evaluation,
-                                             calibration=state.get('calibration'), raw_metrics=raw_evaluation))
+        evaluation = evaluate(model, data, device)
+        write_json(output/'result.json', dict(config=config, split=args.eval_split, metrics=evaluation))
         print('EVALUATED', json.dumps(evaluation), flush=True)
         return
     train = CachedData(args.cache, 'train')
@@ -374,31 +368,18 @@ def run(args):
         if stale >= config.get('patience', 2):
             break
     best_item = max(history, key=lambda x:x['validation']['auc'])
-    calibration = None
-    if config.get('calibration_method'):
-        assert config['calibration_method'] == 'positive_affine_per_domain'
-        from train_script.hdcs_calibration import fit_validation
-        saved = torch.load(str(checkpoint), map_location=device)
-        model.load_state_dict(saved['state_dict'])
-        calibration = fit_validation(model, validation, device)
-        saved['calibration'] = calibration
-        torch.save(saved, str(checkpoint))
-        write_json(output/'calibration.json', calibration)
     write_json(output/'result.json', dict(config=config, best_epoch=best_item['epoch'],
                validation=best_item['validation'], checkpoint=str(checkpoint),
-               elapsed_s=time.time()-started, trained_epochs=len(history), test_evaluated=False,
-               calibration=calibration))
+               elapsed_s=time.time()-started, trained_epochs=len(history), test_evaluated=False))
     if config.get('evaluate_test',False):
         # The checkpoint policy and configuration are fixed before test access.
         saved = torch.load(str(checkpoint),map_location=device)
         model.load_state_dict(saved['state_dict'])
         test = CachedData(args.cache,'test')
         assert test.dataset == config.get('dataset','ali-ccp'), 'Cache dataset mismatch'
-        metrics = evaluate(model,test,device,calibration=saved.get('calibration'))
+        metrics = evaluate(model,test,device)
         write_json(output/'test_result.json',dict(config=config,split='test',metrics=metrics,
-                   checkpoint=str(checkpoint),selected_weights=saved.get('selected_weights','live'),
-                   calibration=saved.get('calibration'),
-                   raw_metrics=evaluate(model,test,device) if saved.get('calibration') else None))
+                   checkpoint=str(checkpoint),selected_weights=saved.get('selected_weights','live')))
         print('TEST',json.dumps(metrics),flush=True)
 
 
@@ -420,7 +401,7 @@ def run_configured(args):
     output = (args.output_dir or ROOT / 'output' / dataset).resolve()
     env = dict(os.environ, CUDA_VISIBLE_DEVICES='' if args.cuda == -1 else str(args.cuda),
                OMP_NUM_THREADS='4', MKL_NUM_THREADS='4', OPENBLAS_NUM_THREADS='1')
-    command = [sys.executable, '-u', str(ROOT / 'train_script' / 'hdcs_train.py')]
+    command = [sys.executable, '-u', str(ROOT / 'modules' / 'hdcs_training.py')]
     splits = ['train', 'val'] + (['test'] if config['evaluate_test'] else [])
     missing = [split for split in splits if not (cache / (split + '.json')).exists()]
     if missing:

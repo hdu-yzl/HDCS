@@ -234,7 +234,7 @@ def run(args):
         raise ValueError("SM4_final_trainer.py supports the four-scenario AliMama dataset only")
 
     if args.model == "dnn" or args.config is not None:
-        from train_script.hdcs_train import run_configured
+        from modules.hdcs_training import run_configured
         return run_configured(args)
 
     field_dimensions = get_feature_dimensions("./data/ali-mama/stats_2")
